@@ -1089,7 +1089,10 @@ impl PurePath {
     fn __truediv__<'py>(slf: PyRef<'py, Self>, other: &Bound<'py, PyAny>) -> PyResult<PyObject> {
         let py = slf.py();
         let ptr = slf.as_ptr();
-        let other_str = _extract_path_str(other)?;
+        let other_str = match _extract_path_str(other) {
+            Ok(s) => s,
+            Err(_) => return Ok(py.NotImplemented().to_object(py)),
+        };
         let mut raw = slf.inner.raw().to_os_string();
         if !raw.as_encoded_bytes().is_empty() && !other_str.is_empty() {
             let sep = slf._sep();
@@ -1106,7 +1109,10 @@ impl PurePath {
     fn __rtruediv__<'py>(slf: PyRef<'py, Self>, other: &Bound<'py, PyAny>) -> PyResult<PyObject> {
         let py = slf.py();
         let ptr = slf.as_ptr();
-        let other_str = _extract_path_str(other)?;
+        let other_str = match _extract_path_str(other) {
+            Ok(s) => s,
+            Err(_) => return Ok(py.NotImplemented().to_object(py)),
+        };
         let path_raw = slf.inner.raw().to_os_string();
         let raw = if other_str.is_empty() {
             path_raw
@@ -2053,32 +2059,46 @@ fn _same_flavour(other: &Bound<'_, PyAny>, expected_flavour: PathFlavour) -> boo
 }
 
 /// Extract a string from a Python object that is either a str or a PathLike.
+///
+/// Returns an error if the object is not a ``str`` (or subclass) and does
+/// not support ``__fspath__`` (i.e. is not ``os.PathLike``).
 fn _extract_path_str(obj: &Bound<'_, PyAny>) -> PyResult<String> {
+    use pyo3::types::{PyBytes, PyString};
+
     // Reject bytes arguments (CPython pathlib raises TypeError for bytes).
-    use pyo3::types::PyBytes;
     if obj.is_instance_of::<PyBytes>() {
         return Err(pyo3::exceptions::PyTypeError::new_err(
             "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'bytes'",
         ));
     }
-    // First try str extraction (only works for str and str subclasses)
-    if let Ok(s) = obj.extract::<String>() {
-        return Ok(s);
-    }
-    // PathLike (has __fspath__)
-    if let Ok(fspath) = obj.call_method0("__fspath__") {
-        let s: String = fspath.extract()?;
-        // Also reject PathLike objects returning bytes from __fspath__.
-        use pyo3::types::PyBytes;
-        if fspath.is_instance_of::<PyBytes>() {
-            return Err(pyo3::exceptions::PyTypeError::new_err(
-                "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'bytes'",
-            ));
+
+    // PathLike (has __fspath__) — check first so that PathLike str-subclasses
+    // still go through __fspath__.
+    if let Ok(has_fspath) = obj.hasattr("__fspath__") {
+        if has_fspath {
+            let fspath = obj.call_method0("__fspath__")?;
+            // Reject PathLike objects returning bytes from __fspath__.
+            if fspath.is_instance_of::<PyBytes>() {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'bytes'",
+                ));
+            }
+            let s: String = fspath.extract()?;
+            return Ok(s);
         }
-        return Ok(s);
     }
-    // Fallback to str() conversion for compatibility
-    Ok(obj.str()?.to_string())
+
+    // str (or str subclass) — extract directly without calling str().
+    if obj.is_instance_of::<PyString>() {
+        // Use PyString::to_string_lossy to handle lone surrogates
+        // (e.g. '\udfff') that appear in filesystem paths.
+        return Ok(obj.downcast::<PyString>()?.to_string_lossy().into_owned());
+    }
+
+    // Anything else → TypeError (matching CPython's os.fspath behaviour).
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'bytes'",
+    ))
 }
 
 /// Parse a ``file:`` URI into a path string.

@@ -113,9 +113,6 @@ PathTest.test_from_uri_windows
 PosixPathTest.test_from_uri_pathname2url_posix
 PosixPathTest.test_from_uri_posix
 
-# ── CompatiblePathTest (2 entries) ────────────────────────────────────
-CompatiblePathTest.test_rtruediv
-CompatiblePathTest.test_truediv
 
 # ── Windows-specific: parser / drive / naming (29 entries) ────────────
 # Windows path features not fully implemented or testable on POSIX hosts
@@ -166,6 +163,4 @@ PathTest.test_matches_writablepath_docstrings
 PosixPathTest.test_handling_bad_descriptor
 PosixPathTest.test_matches_writablepath_docstrings
 
-# ── Compat: truediv/rtruediv on concrete paths (2 entries) ────────────
-PathTest.test_rtruediv
-PathTest.test_truediv
+
