@@ -150,8 +150,8 @@ impl PurePath {
 #[pymethods]
 impl PurePath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<Self> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, pyo3::types::PyDict>>) -> PyResult<Self> {
         #[cfg(windows)]
         let join_flavour = PathFlavour::Windows;
         #[cfg(not(windows))]
@@ -172,6 +172,13 @@ impl PurePath {
             path_info: Mutex::new(None),
         })
     }
+
+    /// ``__init__(*args)`` — accept (and ignore) any positional args so
+    /// that subclasses can call ``super().__init__(*args)`` safely.
+    /// The real work is done by ``__new__``.
+    #[allow(unused_variables)]
+    #[pyo3(signature = (*args))]
+    fn __init__(&self, args: &Bound<'_, pyo3::types::PyTuple>) {}
 
     // -- properties ----------------------------------------------------
 
@@ -1786,8 +1793,11 @@ pub struct PurePosixPath;
 #[pymethods]
 impl PurePosixPath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<(Self, PurePath)> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
+    ) -> PyResult<(Self, PurePath)> {
         let raw = join_path_segments(args, PathFlavour::Posix)?;
         Ok((Self, PurePath::new_posix(raw)))
     }
@@ -1803,8 +1813,11 @@ pub struct PureWindowsPath;
 #[pymethods]
 impl PureWindowsPath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<(Self, PurePath)> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
+    ) -> PyResult<(Self, PurePath)> {
         let raw = join_path_segments(args, PathFlavour::Windows)?;
         Ok((Self, PurePath::new_windows(raw)))
     }
