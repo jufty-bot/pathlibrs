@@ -92,9 +92,6 @@ PosixPathTest.test_is_junction_true
 PathSubclassTest.test_is_junction_true
 
 # ── mkdir(parents=True) edge case (3 entries) ─────────────────────────
-PathSubclassTest.test_mkdir_parents
-PathTest.test_mkdir_parents
-PosixPathTest.test_mkdir_parents
 
 # ── walk() edge cases (5 entries) ─────────────────────────────────────
 PathWalkTest.test_walk_above_recursion_limit

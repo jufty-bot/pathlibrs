@@ -616,7 +616,13 @@ pub fn mkdir(path: &OsStr, mode: u32, parents: bool, exist_ok: bool) -> PyResult
             {
                 if mode != 0o777 {
                     use std::os::unix::fs::PermissionsExt;
-                    let perms = std::fs::Permissions::from_mode(mode);
+                    // Apply the process umask to match CPython's os.mkdir()
+                    // behaviour (the mkdir syscall applies umask; set_permissions
+                    // does not, so we must apply it manually).
+                    let umask = unsafe { libc::umask(0) };
+                    unsafe { libc::umask(umask) };
+                    let effective_mode = mode & !(umask as u32);
+                    let perms = std::fs::Permissions::from_mode(effective_mode);
                     let perm_result = Python::with_gil(|py| {
                         py.allow_threads(|| std::fs::set_permissions(&path_buf, perms))
                     });
