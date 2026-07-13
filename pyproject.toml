@@ -29,6 +29,13 @@ module-name = "pathlibrs"
 features = ["pyo3/extension-module"]
 bindings = "pyo3"
 
+# uv must NOT try to build the Rust package — that's maturin's job.
+# With package=false, uv sync installs only dev deps; maturin develop
+# handles the Rust build. This prevents uv from blowing away the
+# editable install.
+[tool.uv]
+package = false
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100

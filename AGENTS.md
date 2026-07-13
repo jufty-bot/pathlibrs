@@ -222,8 +222,11 @@ target depends on `install` which runs `maturin develop` to rebuild the Rust
 extension. Running `uv run pytest` or `pytest` directly skips the rebuild and
 tests run against the last installed build.
 
-The `--no-sync` flag on `test-python` is **required** — removing it causes
-`uv` to re-sync the venv, which blows away `maturin develop`'s editable install.
+`[tool.uv] package = false` is set in `pyproject.toml`, so uv never touches the
+Rust package — `maturin develop` owns the build entirely. This means `uv sync`
+and `uv run` won't blow away the editable install (a common pitfall with
+maturin + uv projects). See <https://quanttype.net/p/uv-and-maturin/> for
+the rationale.
 
 If the build cache gets stuck, use `make rebuild` to force a fresh `cargo build`
 followed by `maturin develop`.

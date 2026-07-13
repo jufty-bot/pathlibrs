@@ -1,11 +1,13 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-# ═══════════════════════════════════════════════════════════════════════
-# IMPORTANT: Always use `make test-python` to run Python tests.
-# NEVER run `uv run pytest` or `pytest` directly — maturin develop must
-# rebuild the Rust extension first, or you'll test against stale code.
-# ═══════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════
+# ALWAYS use `make test-python` to run Python tests.
+# maturin develop must rebuild the Rust extension first.
+#
+# uv is configured with `package = false` in pyproject.toml so it
+# never touches the Rust build — maturin develop owns it entirely.
+# ═════════════════════════════════════════════════════════════════════
 
 ##@ Setup
 
