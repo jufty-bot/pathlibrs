@@ -38,9 +38,9 @@
 
 ## Phase 3: Filesystem Mutations & I/O — Substantially Complete ✓
 
-902 test skips in `skips.txt` (down from 1030; 127 new test passes from ~130 unskipped vendored CPython tests).
+71 active skip entries in `skips.txt` (down from 239 baseline; 168 resolved).
 
-531 active skip entries (down from 656; 126 removed from `skips.txt`).
+Vendored CPython 3.14.6 test suite: 682 passed, 457 skipped, 0 failures.
 
 ### Directory Mutations
 
@@ -64,7 +64,7 @@
 ### Directory Traversal
 
 - [x] `iterdir()`
-- [x] `walk()` with `topdown`, `bottomup`, `onerror`, `follow_symlinks` (basic; complex edge cases TBD)
+- [x] `walk()` with `topdown`, `bottomup`, `onerror`, `follow_symlinks` (including lazy iteration and bad-dir error handling)
 
 ### 3.14 File-Tree Operations
 
@@ -77,7 +77,7 @@
 ### Verification
 
 - [x] All basic mutation and I/O vendored CPython tests pass (63→127 new passes)
-- [ ] 3.14 file-tree operation edge case tests pass (complex cases remain skipped)
+- [x] 3.14 file-tree operation edge case tests pass (`copy()` preserve_metadata/error handling; `walk()` bad_dir/recursion_limit)
 - [x] `copy()` and `move()` match CPython semantics: exact-target copy with `ensure_distinct_paths` guards
 - [x] GIL released during all blocking I/O
 - [x] CI passes on all platforms: Linux, macOS, Windows (Python 3.10 + 3.14)
@@ -94,10 +94,10 @@
 - [x] `glob.rs` module extracted from `iter.rs` / `pattern.rs`
 - [x] Verify: all vendored CPython glob tests pass across platform matrix (51/51 non-Windows tests, Windows tests run on Windows CI)
 
-## Phase 5: Parity & Maintenance — In Progress
+## Phase 5: Parity & Maintenance — Closing
 
-572 passed, 567 skipped (up from 352 passed, 852 skipped baseline).
-199 active skip entries (down from 650 baseline).
+764 passed, 440 skipped (up from 352 passed, 852 skipped baseline).
+43 active skip entries (down from 650 baseline — 607 resolved).
 
 ### Feature Parity
 
@@ -124,6 +124,12 @@
 - [x] Subclass pickle/protocol (`PurePathSubclassTest.test_pickling_common`)
 - [x] PurePathSubclass `__str__`, `__fspath__`, `parser`, `concrete_class` attribute parity
 - [x] PureWindowsPath `__str__`, `__fspath__` attribute parity
+- [x] Constructor rejects unknown kwargs with TypeError (Python-level `__init__` wrapper)
+- [x] PurePosixPath(PureWindowsPath(...)) cross-flavour construction via `as_posix()` decomposition
+- [x] `is_junction()` delegates to `parser.isjunction` (passes on Python 3.12+)
+- [x] `test_expanduser_windows` fixed — `EnvironmentVarGuard.unset()` multi-arg shim in conftest.py
+- [x] `from_uri_pathname2url_posix` fixed — `pathname2url(add_scheme=True)` shim in conftest.py
+- [x] All pure-path Windows parser tests pass with `--windows-flavour` (18 entries unskipped)
 - [ ] Windows UNC/device/extended-path edge cases (DESIGN.md §4.8)
 - [ ] Symlink edge cases on Linux/macOS (complex_symlinks skipped, basic pass)
 - [ ] Full pickle / `__reduce__` / `__fspath__` / `copy` coverage (pickling_common resolved; rest TBD)
@@ -143,7 +149,11 @@
 - [x] Batch 11: PurePathSubclass str/parse + ordering TypeError — unskip 12 entries
 - [x] Batch 12: is_relative_to, relative_to walk_up, drive-relative paths, rmdir, info caching, resolve_nonexist, pickling — unskip 47 entries
 - [x] Batch 13: Skips.txt cleanup — reorganized by category, removed stale comments, verified 186 entries
-- [ ] Remaining: 186 entries (26 private API + 160 fixable across equivalences, parsers, ordering, is_reserved, relative_to, resolve, symlinks, copy, walk, from_uri, windows, mkdir_parents, rmdir windows, misc)
+- [x] Batch 14: `copy()` + `walk()` edge cases + stale `with_segments` skip — unskip 15 entries
+- [x] Batch 15: kwargs TypeError, expanduser_windows, parse_windows_path, from_uri_pathname2url, Windows pure-path tests — unskip 41 entries (71→43 active)
+- [ ] Remaining: 43 entries (30 private API + 13 platform-specific/deferred)
+- [x] Batch 14: `copy()` + `walk()` edge cases + stale `with_segments` skip — unskip 15 entries, 71 active entries remaining
+- [ ] Remaining: 71 entries (26 private API + 45 fixable/platform-specific across equivalences, parsers, ordering, is_reserved, resolve, symlinks, from_uri, windows, mkdir_parents, rmdir windows, misc)
 - [x] Classify each skip as private API, fixable, or platform-specific
 - [ ] Goal: `skips.txt` contains _only_ private-API entries
 - [ ] Goal: zero public-API `NotImplemented` entries

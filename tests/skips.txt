@@ -7,9 +7,11 @@
 # Remove entries as features are fixed in pathlibrs.
 # Only private-API tests should remain as permanent skips.
 #
-# Stats: 116 active entries | 723 passed | 481 skipped | 0 failures (all 6 CI platforms)
-#        (123 entries resolved from 239 baseline)
-#
+# Stats: 29 active entries | 791 passed | 412 skipped | 0 failures (macOS)
+#        27 private-API entries (permanent)
+#         2 platform-specific / deferred
+#       (210 entries resolved from 239 baseline)
+
 # ═══════════════════════════════════════════════════════════════════════
 
 # ── Private API: _delete() (26 entries, permanent) ────────────────────
@@ -45,142 +47,6 @@ PathTest.test_delete_outer_junction
 # CPython 3.13 pickle format references pathlib._local.PurePosixPath
 PurePathTest.test_concrete_class
 
-# ── NotImplemented / UnsupportedOperation — RESOLVED (0 entries) ─────
-
-# ── copy(): preserve_metadata not implemented (8 entries) ─────────────
-PathSubclassTest.test_copy_dir_preserve_metadata
-PathSubclassTest.test_copy_link_preserve_metadata
-PathTest.test_copy_dir_preserve_metadata
-PathTest.test_copy_link_preserve_metadata
-PosixPathTest.test_copy_dir_preserve_metadata
-PosixPathTest.test_copy_link_preserve_metadata
-
-# ── copy(): permission / error handling (6 entries) ───────────────────
-PathSubclassTest.test_copy_dir_no_read_permission
-PathSubclassTest.test_copy_error_handling
-PathTest.test_copy_dir_no_read_permission
-PathTest.test_copy_error_handling
-PosixPathTest.test_copy_dir_no_read_permission
-PosixPathTest.test_copy_error_handling
-
-# ── symlinks: complex (relative / dot-dot, 9 entries) ────────────────
-PathSubclassTest.test_complex_symlinks_absolute
-PathSubclassTest.test_complex_symlinks_relative
-PathSubclassTest.test_complex_symlinks_relative_dot_dot
-PathTest.test_complex_symlinks_absolute
-PathTest.test_complex_symlinks_relative
-PathTest.test_complex_symlinks_relative_dot_dot
-PosixPathTest.test_complex_symlinks_absolute
-PosixPathTest.test_complex_symlinks_relative
-PosixPathTest.test_complex_symlinks_relative_dot_dot
-
-# ── resolve() edge cases (9 entries) ──────────────────────────────────
-PathSubclassTest.test_resolve_common
-PathSubclassTest.test_resolve_dot
-PathSubclassTest.test_resolve_loop
-PathTest.test_resolve_common
-PathTest.test_resolve_dot
-PathTest.test_resolve_loop
-PosixPathTest.test_resolve_common
-PosixPathTest.test_resolve_dot
-PosixPathTest.test_resolve_loop
-
-# ── cross-flavour: equivalences (7 entries) ───────────────────────────
-PathTest.test_equivalences_windows
-PurePathSubclassTest.test_equivalences_windows
-PurePathTest.test_equivalences_windows
-
-# ── cross-flavour: different parsers unordered — RESOLVED (0 entries) ─
-
-# ── ordering: cross-flavour TypeError (8 entries) ─────────────────────
-PathTest.test_ordering_windows
-
-# ── expanduser_windows — EnvironmentVarGuard.unset() API change, fails on Py3.10 (1 entry)
-PathTest.test_expanduser_windows
-
-# ── owner/group windows — raises UnsupportedOperation, pathlibrs lacks it (2 entries) ─
-PathTest.test_group_windows
-PathTest.test_owner_windows
-
-# ── is_reserved() DeprecationWarning — RESOLVED (0 entries) ──────────
-
-# ── is_junction_true — posixpath.isjunction only in Python 3.12+ (4 entries) ─
-PathTest.test_is_junction_true
-PosixPathTest.test_is_junction_true
-PathSubclassTest.test_is_junction_true
-
-# ── relative_to / is_relative_to — RESOLVED (0 entries) ──────────────
-
-# ── mkdir(parents=True) edge case (3 entries) ─────────────────────────
-PathSubclassTest.test_mkdir_parents
-PathTest.test_mkdir_parents
-PosixPathTest.test_mkdir_parents
-
-# ── rmdir (2 entries; Windows handle leak, passes on POSIX) ───────────
-PathTest.test_rmdir
-WindowsPathTest.test_rmdir
-
-# ── walk() edge cases (5 entries) ─────────────────────────────────────
-PathWalkTest.test_walk_above_recursion_limit
-PathWalkTest.test_walk_bad_dir
-PathWalkTest.test_walk_follow_symlinks
-PathWalkTest.test_walk_many_open_files
-PathWalkTest.test_walk_symlink_location
-
-# ── from_uri / pathname2url POSIX (8 entries) ─────────────────────────
-PathSubclassTest.test_from_uri_pathname2url_posix
-PathSubclassTest.test_from_uri_posix
-PathTest.test_from_uri_pathname2url_posix
-PathTest.test_from_uri_posix
-PathTest.test_from_uri_pathname2url_windows
-PathTest.test_from_uri_windows
-PosixPathTest.test_from_uri_pathname2url_posix
-PosixPathTest.test_from_uri_posix
-
-# ── CompatiblePathTest — RESOLVED (0 entries) ─────────────────────────
-
-# ── Concrete class move edge cases — RESOLVED (0 entries) ────────────
-
-# ── Windows-specific: parser / drive / naming (29 entries) ────────────
-# Windows path features not fully implemented or testable on POSIX hosts
-PathSubclassTest.test_eq_windows
+# ── test_absolute_windows (1 entry, Windows-only) ───────────────────
+# Uses os_helper.subst_drive() — cannot run on POSIX.
 PathTest.test_absolute_windows
-PathTest.test_drive_windows
-PathTest.test_eq_windows
-PathTest.test_is_absolute_windows
-PathTest.test_parse_path_windows
-PathTest.test_root_windows
-PathTest.test_str_windows
-PathTest.test_with_name_windows
-PathTest.test_with_stem_windows
-PurePathSubclassTest.test_drive_windows
-PurePathSubclassTest.test_is_absolute_windows
-PurePathSubclassTest.test_with_name_windows
-PurePathSubclassTest.test_with_stem_windows
-PurePathTest.test_drive_windows
-PurePathTest.test_with_name_windows
-PurePathTest.test_with_stem_windows
-WindowsPathTest.test_eq_windows
-
-# Windows: parse_windows_path on pure paths (6 entries)
-PathSubclassTest.test_parse_windows_path
-PathTest.test_parse_windows_path
-PosixPathTest.test_parse_windows_path
-PurePathTest.test_parse_windows_path
-PurePosixPathTest.test_parse_windows_path
-
-# ── Constructor / nesting / subclassing (7 entries) ──────────────────
-PathSubclassTest.test_with_segments
-PathTest.test_constructor_nested_foreign_flavour
-PathTest.test_with_segments
-PosixPathTest.test_with_segments
-PurePathSubclassTest.test_constructor_nested_foreign_flavour
-
-# ── fspath / is_absolute pure path — RESOLVED (0 entries) ────────────
-
-# ── Misc: descriptor / junction / docstrings (6 entries) ─────────────
-PathSubclassTest.test_matches_writablepath_docstrings
-PathTest.test_matches_writablepath_docstrings
-PosixPathTest.test_matches_writablepath_docstrings
-
-# ── Compat: truediv/rtruediv — RESOLVED (0 entries) ──────────────────

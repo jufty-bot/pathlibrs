@@ -4,10 +4,11 @@
 
 use std::ffi::{OsStr, OsString};
 use std::hash::{Hash, Hasher};
+use std::path::Path as StdPath;
 use std::sync::Mutex;
 
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyList, PyString, PyTuple, PyType};
+use pyo3::types::{PyAnyMethods, PyDict, PyList, PyString, PyTuple, PyType};
 
 use crate::fs::PathInfo;
 use crate::iter::{GlobIter, ParentsIter};
@@ -157,8 +158,9 @@ impl PurePath {
 #[pymethods]
 impl PurePath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<Self> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+        let _ = kwargs;
         #[cfg(windows)]
         let join_flavour = PathFlavour::Windows;
         #[cfg(not(windows))]
@@ -178,6 +180,16 @@ impl PurePath {
             flavour: PathFlavour::Posix,
             path_info: Mutex::new(None),
         })
+    }
+
+    /// No-op initialiser (CPython compat).
+    ///
+    /// Prevents fall-through to ``object.__init__()`` when subclasses call
+    /// ``super().__init__(*pathsegments)``.
+    #[pyo3(signature = (*args))]
+    fn __init__(&self, args: &Bound<'_, PyTuple>) -> PyResult<()> {
+        let _ = args;
+        Ok(())
     }
 
     // -- properties ----------------------------------------------------
@@ -202,6 +214,7 @@ impl PurePath {
             .unwrap_or_default()
     }
 
+    /// The concatenation of the drive and root, or ''.
     #[getter]
     fn anchor(&self) -> String {
         self._anchor_str()
@@ -216,11 +229,17 @@ impl PurePath {
         p.parts.last().map(|s| s.to_string_lossy().into_owned())
     }
 
+    /// The final path component, if any.
     #[getter]
     fn name(&self) -> String {
         self._name_option().unwrap_or_default()
     }
 
+    ///
+    /// The final component's last suffix, if any.
+    ///
+    /// This includes the leading period. For example: '.txt'
+    ///
     #[getter]
     fn suffix(&self) -> String {
         match self._name_option() {
@@ -231,6 +250,11 @@ impl PurePath {
         }
     }
 
+    ///
+    /// A list of the final component's suffixes, if any.
+    ///
+    /// These include the leading periods. For example: ['.tar', '.gz']
+    ///
     #[getter]
     fn suffixes(&self) -> Vec<String> {
         match self._name_option() {
@@ -242,6 +266,7 @@ impl PurePath {
         }
     }
 
+    /// The final path component, minus its last suffix.
     #[getter]
     fn stem(&self) -> String {
         match self._name_option() {
@@ -252,6 +277,7 @@ impl PurePath {
         }
     }
 
+    /// The logical parent of the path.
     #[getter]
     fn parent<'py>(slf: PyRef<'py, Self>) -> PyResult<PyObject> {
         let py = slf.py();
@@ -260,6 +286,7 @@ impl PurePath {
         PurePath::_make_child(py, ptr, parent_raw)
     }
 
+    /// A sequence of this path's logical parents.
     #[getter]
     fn parents<'py>(slf: PyRef<'py, Self>) -> PyResult<PyObject> {
         let py = slf.py();
@@ -273,6 +300,8 @@ impl PurePath {
         Ok(bound.into_any().unbind())
     }
 
+    /// An object providing sequence-like access to the
+    /// components in the filesystem path.
     #[getter]
     fn parts<'py>(slf: PyRef<'py, Self>, py: Python<'py>) -> PyResult<PyObject> {
         let p = slf.inner.parsed(slf.flavour);
@@ -311,6 +340,11 @@ impl PurePath {
 
     // -- methods -------------------------------------------------------
 
+    /// Combine this path with one or several arguments, and return a
+    /// new path representing either a subpath (if all arguments are relative
+    /// paths) or a totally different path (if one of the arguments is
+    /// anchored).
+    ///
     #[pyo3(signature = (*args))]
     fn joinpath<'py>(slf: PyRef<'py, Self>, args: &Bound<'py, PyAny>) -> PyResult<PyObject> {
         let py = slf.py();
@@ -336,6 +370,7 @@ impl PurePath {
         PurePath::_make_child(py, ptr, result)
     }
 
+    /// Return a new path with the file name changed.
     fn with_name<'py>(slf: PyRef<'py, Self>, name: &str) -> PyResult<PyObject> {
         if slf._name_option().is_none() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -369,6 +404,7 @@ impl PurePath {
         PurePath::_make_child(py, ptr, new_raw)
     }
 
+    /// Return a new path with the stem changed.
     fn with_stem<'py>(slf: PyRef<'py, Self>, stem: &str) -> PyResult<PyObject> {
         if slf._name_option().is_none() {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
@@ -384,6 +420,10 @@ impl PurePath {
         PurePath::with_name(slf, &new_name)
     }
 
+    /// Return a new path with the file suffix changed.  If the path
+    /// has no suffix, add given suffix.  If the given suffix is an empty
+    /// string, remove the suffix from the path.
+    ///
     fn with_suffix<'py>(slf: PyRef<'py, Self>, suffix: &str) -> PyResult<PyObject> {
         let name = slf._name_option().unwrap_or_default();
         let old_stem = stem_from_name(OsStr::new(&name))
@@ -452,10 +492,10 @@ impl PurePath {
         Ok(result.into_any().unbind())
     }
 
-    /// ``with_segments(*pathsegments)`` — class method.
+    /// Construct a new path object from any number of path-like objects.
+    /// Subclasses may override this method to customize how new path objects
+    /// are created from methods like `iterdir()`.
     ///
-    /// Construct a path from variable number of path segments joined by the
-    /// appropriate separator.
     #[classmethod]
     #[pyo3(signature = (*pathsegments))]
     fn with_segments(
@@ -479,7 +519,13 @@ impl PurePath {
     #[pyo3(signature = (uri))]
     fn from_uri(_cls: &Bound<'_, PyType>, uri: &str) -> PyResult<PyObject> {
         let _py = _cls.py();
-        let path_str = parse_file_uri(uri)?;
+        // Detect Windows flavour via parser name (ntpath=Windows, posixpath=POSIX).
+        let is_windows = _cls
+            .getattr("parser")
+            .and_then(|p| p.getattr("__name__"))
+            .map(|n| n.extract::<String>().unwrap_or_default() == "ntpath")
+            .unwrap_or(false);
+        let path_str = parse_file_uri(uri, is_windows)?;
         Ok(_cls.call1((path_str,))?.unbind())
     }
 
@@ -732,10 +778,10 @@ impl PurePath {
         ))
     }
 
-    /// ``full_match(pattern, *, case_sensitive=None)``
     ///
-    /// Like ``match()`` but the pattern must match the *entire* path.
-    /// A relative pattern like ``"*.py"`` will NOT match ``"/a/b/foo.py"``.
+    /// Return True if this path matches the given glob-style pattern. The
+    /// pattern is matched against the entire path.
+    ///
     #[pyo3(name = "full_match")]
     #[pyo3(signature = (pattern, *, case_sensitive = None))]
     fn full_match_(&self, pattern: &str, case_sensitive: Option<bool>) -> PyResult<bool> {
@@ -867,17 +913,23 @@ impl PurePath {
     /// Return the user name of the file owner.
     #[pyo3(signature = (*, follow_symlinks = true))]
     fn owner(&self, follow_symlinks: bool) -> PyResult<String> {
+        if self._is_windows() {
+            return Err(unsupported_msg("Path.owner()"));
+        }
         crate::fs::owner(self.inner.raw(), follow_symlinks)
     }
 
     /// Return the group name of the file.
     #[pyo3(signature = (*, follow_symlinks = true))]
     fn group(&self, follow_symlinks: bool) -> PyResult<String> {
+        if self._is_windows() {
+            return Err(unsupported_msg("Path.group()"));
+        }
         crate::fs::group(self.inner.raw(), follow_symlinks)
     }
 
     /// Resolve the path to an absolute path, resolving symlinks.
-    #[pyo3(signature = (*, strict = false))]
+    #[pyo3(signature = (strict = false))]
     fn resolve<'py>(slf: PyRef<'py, Self>, strict: bool) -> PyResult<PyObject> {
         let py = slf.py();
         let resolved = crate::fs::resolve(slf.inner.raw(), strict)?;
@@ -1327,7 +1379,9 @@ impl PurePath {
 
     // -- Phase 3: Directory mutations -----------------------------------
 
-    /// Create a directory at this path.
+    ///
+    /// Create a new directory at this given path.
+    ///
     #[pyo3(signature = (mode = 0o777, parents = false, exist_ok = false))]
     fn mkdir(&self, mode: u32, parents: bool, exist_ok: bool) -> PyResult<()> {
         crate::fs::mkdir(self.inner.raw(), mode, parents, exist_ok)
@@ -1381,9 +1435,10 @@ impl PurePath {
 
     // -- Phase 3: Link creation -----------------------------------------
 
-    /// Create a symbolic link pointing to this path.
     ///
-    /// In CPython, symlink_to(target) creates a symlink at self pointing to target.
+    /// Make this path a symlink pointing to the target path.
+    /// Note the order of arguments (link, target) is the reverse of os.symlink.
+    ///
     #[pyo3(signature = (target, target_is_directory = false))]
     fn symlink_to(&self, target: &Bound<'_, PyAny>, target_is_directory: bool) -> PyResult<()> {
         let target_str = _extract_path_str(target)?;
@@ -1450,12 +1505,16 @@ impl PurePath {
         crate::fs::read_text(self.inner.raw(), encoding, errors)
     }
 
-    /// Write bytes to this file.
+    ///
+    /// Open the file in bytes mode, write to it, and close the file.
+    ///
     fn write_bytes(&self, data: Vec<u8>) -> PyResult<()> {
         crate::fs::write_bytes(self.inner.raw(), &data)
     }
 
-    /// Write text to this file.
+    ///
+    /// Open the file in text mode, write to it, and close the file.
+    ///
     #[pyo3(signature = (data, encoding = None, errors = None, newline = None))]
     fn write_text(
         &self,
@@ -1490,61 +1549,18 @@ impl PurePath {
     /// Yields ``(dirpath, dirnames, filenames)`` tuples. The caller may
     /// modify ``dirnames`` in-place to control which subdirectories are
     /// visited next (when ``topdown=True``).
-    #[pyo3(signature = (topdown = true, onerror = None, follow_symlinks = false))]
+    #[pyo3(signature = (top_down = true, on_error = None, follow_symlinks = false))]
     fn walk<'py>(
         slf: PyRef<'py, Self>,
-        topdown: bool,
-        onerror: Option<PyObject>,
+        top_down: bool,
+        on_error: Option<PyObject>,
         follow_symlinks: bool,
     ) -> PyResult<PyObject> {
         let py = slf.py();
-        let ptr = slf.as_ptr();
-
-        // Collect walk entries with depth info for topdown/bottomup ordering
-        let entries = match crate::fs::walk_entries(slf.inner.raw(), topdown, follow_symlinks) {
-            Ok(e) => e,
-            Err(e) => {
-                if let Some(ref handler) = onerror {
-                    handler.call1(py, (e,))?;
-                    return Ok(PyList::new(py, Vec::<PyObject>::new())?.into_any().unbind());
-                }
-                return Err(e);
-            }
-        };
-
-        let mut results: Vec<PyObject> = Vec::with_capacity(entries.len());
-        for (dirpath_str, dirnames, filenames) in &entries {
-            let dp: PyObject = Self::_make_child(py, ptr, dirpath_str.clone())?;
-            let dn: PyObject = PyList::new(
-                py,
-                dirnames.iter().map(|n| {
-                    n.to_string_lossy()
-                        .into_owned()
-                        .into_pyobject(py)
-                        .unwrap()
-                        .into_any()
-                        .unbind()
-                }),
-            )?
-            .into_any()
-            .unbind();
-            let fn_: PyObject = PyList::new(
-                py,
-                filenames.iter().map(|n| {
-                    n.to_string_lossy()
-                        .into_owned()
-                        .into_pyobject(py)
-                        .unwrap()
-                        .into_any()
-                        .unbind()
-                }),
-            )?
-            .into_any()
-            .unbind();
-            let tup = PyTuple::new(py, [dp, dn, fn_])?;
-            results.push(tup.into_any().unbind());
-        }
-        Ok(PyList::new(py, results)?.into_any().unbind())
+        let source = unsafe { Py::from_borrowed_ptr(py, slf.as_ptr()) };
+        let root = slf.inner.raw().to_os_string();
+        let iter = WalkIter::new(source, root, top_down, follow_symlinks, on_error);
+        Ok(Py::new(py, iter)?.into_pyobject(py)?.into_any().unbind())
     }
 
     // -- Phase 4: Glob & Pattern Matching --------------------------------
@@ -1607,13 +1623,8 @@ impl PurePath {
             })
             .collect();
 
-        let cls = {
-            let bound =
-                unsafe { pyo3::Bound::<'_, pyo3::PyAny>::from_borrowed_ptr(py, slf.as_ptr()) };
-            bound.getattr("__class__")?.unbind()
-        };
-
-        let iter = GlobIter::new(str_results, cls);
+        let source: PyObject = slf.into_pyobject(py)?.into_any().unbind();
+        let iter = GlobIter::new(str_results, source);
         Ok(Py::new(py, iter)?.into_pyobject(py)?.into_any().unbind())
     }
 
@@ -1695,12 +1706,13 @@ impl PurePath {
             }
         }
 
-        let _ = (preserve_metadata, ignore, on_error);
+        let _ = (ignore, on_error);
         crate::fs::copy_tree(
             slf.inner.raw(),
             OsStr::new(&target_str),
             follow_symlinks,
             dirs_exist_ok,
+            preserve_metadata,
         )?;
 
         Self::_make_child(py, slf.as_ptr(), OsString::from(&target_str))
@@ -1728,12 +1740,13 @@ impl PurePath {
             )));
         }
         let final_dst = format!("{}/{}", target_str.trim_end_matches('/'), name);
-        let _ = (preserve_metadata, ignore, on_error);
+        let _ = (ignore, on_error);
         crate::fs::copy_tree(
             slf.inner.raw(),
             OsStr::new(&final_dst),
             follow_symlinks,
             dirs_exist_ok,
+            preserve_metadata,
         )?;
         Self::_make_child(py, slf.as_ptr(), OsString::from(&final_dst))
     }
@@ -1786,6 +1799,201 @@ impl PurePath {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// WalkIter — lazy directory-tree iterator used by Path.walk()
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalkFrameState {
+    Pending,
+    Yielded,
+}
+
+#[derive(Debug)]
+struct WalkFrame {
+    path: OsString,
+    state: WalkFrameState,
+    dirnames: Vec<OsString>,
+    filenames: Vec<OsString>,
+}
+
+/// Lazy iterator for ``Path.walk()``.
+///
+/// Mirrors CPython's ``os.walk`` generator: each call to ``__next__``
+/// reads a single directory, yields its tuple, and pushes its
+/// subdirectories onto the stack. This allows the caller to modify the
+/// yielded ``dirnames`` list before subdirectories are visited.
+#[pyclass(module = "pathlibrs")]
+pub struct WalkIter {
+    source: Py<PyAny>,
+    topdown: bool,
+    follow_symlinks: bool,
+    on_error: Option<PyObject>,
+    stack: Vec<WalkFrame>,
+}
+
+impl WalkIter {
+    fn new(
+        source: Py<PyAny>,
+        root: OsString,
+        topdown: bool,
+        follow_symlinks: bool,
+        on_error: Option<PyObject>,
+    ) -> Self {
+        Self {
+            source,
+            topdown,
+            follow_symlinks,
+            on_error,
+            stack: vec![WalkFrame {
+                path: root,
+                state: WalkFrameState::Pending,
+                dirnames: Vec::new(),
+                filenames: Vec::new(),
+            }],
+        }
+    }
+
+    fn build_tuple<'py>(
+        &self,
+        py: Python<'py>,
+        path: &OsStr,
+        dirnames: &[OsString],
+        filenames: &[OsString],
+    ) -> PyResult<PyObject> {
+        let dp: PyObject = self.source.call_method1(
+            py,
+            "with_segments",
+            (path.to_string_lossy().into_owned(),),
+        )?;
+        let dn: PyObject = PyList::new(
+            py,
+            dirnames.iter().map(|n| {
+                n.to_string_lossy()
+                    .into_owned()
+                    .into_pyobject(py)
+                    .unwrap()
+                    .into_any()
+                    .unbind()
+            }),
+        )?
+        .into_any()
+        .unbind();
+        let fn_: PyObject = PyList::new(
+            py,
+            filenames.iter().map(|n| {
+                n.to_string_lossy()
+                    .into_owned()
+                    .into_pyobject(py)
+                    .unwrap()
+                    .into_any()
+                    .unbind()
+            }),
+        )?
+        .into_any()
+        .unbind();
+        Ok(PyTuple::new(py, [dp, dn, fn_])?.into_any().unbind())
+    }
+}
+
+#[pymethods]
+impl WalkIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(mut slf: PyRefMut<'py, Self>, py: Python<'py>) -> PyResult<Option<PyObject>> {
+        while let Some(mut frame) = slf.stack.pop() {
+            match frame.state {
+                WalkFrameState::Pending => {
+                    let entries = match crate::fs::read_dir(&frame.path) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            // CPython's os.walk swallows directory read errors
+                            // by default; call on_error only when provided.
+                            if let Some(ref handler) = slf.on_error {
+                                handler.call1(py, (e,))?;
+                            }
+                            continue;
+                        }
+                    };
+
+                    let mut dirnames: Vec<OsString> = Vec::new();
+                    let mut filenames: Vec<OsString> = Vec::new();
+                    for entry in entries {
+                        let is_directory = entry.is_dir
+                            || (entry.is_symlink
+                                && slf.follow_symlinks
+                                && std::fs::metadata(StdPath::new(&entry.path))
+                                    .map(|m| m.is_dir())
+                                    .unwrap_or(false));
+                        if is_directory {
+                            dirnames.push(entry.name);
+                        } else {
+                            filenames.push(entry.name);
+                        }
+                    }
+
+                    if slf.topdown {
+                        // Yield now; children will be pushed after the caller
+                        // has had a chance to modify `dirnames`.
+                        let path = frame.path.clone();
+                        frame.dirnames = dirnames.clone();
+                        frame.filenames = filenames.clone();
+                        frame.state = WalkFrameState::Yielded;
+                        slf.stack.push(frame);
+                        return Ok(Some(slf.build_tuple(py, &path, &dirnames, &filenames)?));
+                    }
+
+                    // Bottom-up: push a marker for this directory, then push
+                    // children so they are yielded first.
+                    let path = frame.path.clone();
+                    frame.dirnames = dirnames.clone();
+                    frame.filenames = filenames;
+                    frame.state = WalkFrameState::Yielded;
+                    slf.stack.push(frame);
+                    for name in dirnames.iter().rev() {
+                        let child_path = StdPath::new(&path).join(name).as_os_str().to_os_string();
+                        slf.stack.push(WalkFrame {
+                            path: child_path,
+                            state: WalkFrameState::Pending,
+                            dirnames: Vec::new(),
+                            filenames: Vec::new(),
+                        });
+                    }
+                }
+                WalkFrameState::Yielded => {
+                    if slf.topdown {
+                        // Push children (respecting any in-place modifications
+                        // to `dirnames` made by the caller).
+                        for name in frame.dirnames.iter().rev() {
+                            let child_path = StdPath::new(&frame.path)
+                                .join(name)
+                                .as_os_str()
+                                .to_os_string();
+                            slf.stack.push(WalkFrame {
+                                path: child_path,
+                                state: WalkFrameState::Pending,
+                                dirnames: Vec::new(),
+                                filenames: Vec::new(),
+                            });
+                        }
+                    } else {
+                        // Bottom-up marker: all children have been yielded.
+                        return Ok(Some(slf.build_tuple(
+                            py,
+                            &frame.path,
+                            &frame.dirnames,
+                            &frame.filenames,
+                        )?));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // PurePosixPath
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1795,8 +2003,12 @@ pub struct PurePosixPath;
 #[pymethods]
 impl PurePosixPath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<(Self, PurePath)> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<(Self, PurePath)> {
+        let _ = kwargs;
         let raw = join_path_segments(args, PathFlavour::Posix)?;
         Ok((Self, PurePath::new_posix(raw)))
     }
@@ -1812,8 +2024,12 @@ pub struct PureWindowsPath;
 #[pymethods]
 impl PureWindowsPath {
     #[new]
-    #[pyo3(signature = (*args))]
-    fn new(args: &Bound<'_, PyTuple>) -> PyResult<(Self, PurePath)> {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn new(
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<(Self, PurePath)> {
+        let _ = kwargs;
         let raw = join_path_segments(args, PathFlavour::Windows)?;
         Ok((Self, PurePath::new_windows(raw)))
     }
@@ -1852,6 +2068,33 @@ pub(crate) fn join_path_segments(
     let mut parts: Vec<OsString> = Vec::new();
 
     for arg in args.iter() {
+        // When an arg is a PurePath-like object, convert to the target
+        // flavour's string representation before parsing.  This handles
+        // cross-flavour cases like PurePosixPath(PureWindowsPath(...)).
+        if arg.getattr("parts").is_ok() {
+            let path_str: String = if flavour == PathFlavour::Posix {
+                arg.call_method0("as_posix")?.extract()?
+            } else {
+                arg.str()?.to_string()
+            };
+            if path_str.is_empty() {
+                continue;
+            }
+            let parsed = crate::parsing::parse_path(OsStr::new(&path_str), flavour);
+            if parsed.drive.is_some() || parsed.root.is_some() {
+                if parsed.drive.is_some() {
+                    drive = parsed.drive;
+                }
+                if parsed.root.is_some() {
+                    root = parsed.root;
+                }
+                parts = parsed.parts;
+            } else {
+                parts.extend(parsed.parts);
+            }
+            continue;
+        }
+
         let s = _extract_path_str(&arg)?;
         if s.is_empty() {
             continue;
@@ -2113,6 +2356,25 @@ fn _extract_path_str(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     Ok(obj.str()?.to_string())
 }
 
+/// Returns true if ``authority`` matches the local machine's hostname.
+#[cfg(unix)]
+fn is_local_hostname(authority: &str) -> bool {
+    let mut buf = [0u8; 256];
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) };
+    if rc != 0 {
+        return false;
+    }
+    let hostname = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const _).to_string_lossy() };
+    authority.eq_ignore_ascii_case(&hostname)
+}
+
+#[cfg(not(unix))]
+fn is_local_hostname(_authority: &str) -> bool {
+    // On non-Unix platforms (Windows), we can't easily check the hostname.
+    // Fall back to only accepting empty authority and "localhost".
+    false
+}
+
 /// Parse a ``file:`` URI into a path string.
 ///
 /// Supports:
@@ -2120,7 +2382,7 @@ fn _extract_path_str(obj: &Bound<'_, PyAny>) -> PyResult<String> {
 /// - ``file:relative/path`` (POSIX)
 /// - ``file:///C:/path`` (Windows drive letter)
 /// - ``file://host/path`` (non-localhost host → error)
-fn parse_file_uri(uri: &str) -> PyResult<String> {
+fn parse_file_uri(uri: &str, is_windows: bool) -> PyResult<String> {
     // Strip the "file:" prefix
     let rest = uri
         .strip_prefix("file:")
@@ -2129,34 +2391,58 @@ fn parse_file_uri(uri: &str) -> PyResult<String> {
             pyo3::exceptions::PyValueError::new_err(format!("URI '{uri}' is not a file: URI"))
         })?;
 
-    // Check for authority (//)
+    // Windows drive letter without authority: file:c:/path or file:c|/path
+    if rest.len() >= 2
+        && rest.as_bytes()[0].is_ascii_alphabetic()
+        && (rest.as_bytes()[1] == b':' || rest.as_bytes()[1] == b'|')
+    {
+        let drive = rest.as_bytes()[0] as char;
+        let rest_path = if rest.len() > 2 { &rest[2..] } else { "" };
+        return Ok(format!("{drive}:{rest_path}"));
+    }
+
+    // Single-slash drive letter: file:/c|/path → c:/path
+    if rest.len() >= 3
+        && rest.as_bytes()[0] == b'/'
+        && rest.as_bytes()[1].is_ascii_alphabetic()
+        && (rest.as_bytes()[2] == b':' || rest.as_bytes()[2] == b'|')
+    {
+        let drive = rest.as_bytes()[1] as char;
+        let rest_path = if rest.len() > 3 { &rest[3..] } else { "" };
+        return Ok(format!("{drive}:{rest_path}"));
+    }
+
+    // Must have an authority (//) or be an absolute POSIX path
     let authority_rest = match rest.strip_prefix("//") {
         Some(ar) => ar,
         None => {
-            // file:relative/path → relative path
+            if !rest.starts_with('/') {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "non-local file: URI not supported: '{uri}'"
+                )));
+            }
             return Ok(rest.to_string());
         }
     };
 
-    // Find the first / after the authority
+    // Split authority from path
     let (authority, path_part) = match authority_rest.find('/') {
         Some(idx) => {
             let (auth, path) = authority_rest.split_at(idx);
-            (auth, &path[1..]) // skip the /
+            (auth, &path[1..])
         }
-        None => {
-            // file://hostname → no path
-            (authority_rest, "")
-        }
+        None => (authority_rest, ""),
     };
 
-    // If authority is empty or "localhost", it's a local path
-    if authority.is_empty() || authority.eq_ignore_ascii_case("localhost") {
+    // Empty authority or localhost → local file
+    let is_local = authority.is_empty()
+        || authority.eq_ignore_ascii_case("localhost")
+        || is_local_hostname(authority);
+    if is_local {
         if path_part.is_empty() {
             return Ok("/".to_string());
         }
-
-        // Windows drive letter: /C:/path or /C|/path
+        // Windows drive letter after local authority: /C:/path or /C|/path
         if path_part.len() >= 3
             && path_part.as_bytes()[0].is_ascii_alphabetic()
             && (path_part.as_bytes()[1] == b':' || path_part.as_bytes()[1] == b'|')
@@ -2165,17 +2451,49 @@ fn parse_file_uri(uri: &str) -> PyResult<String> {
             let drive = path_part.as_bytes()[0] as char;
             let rest_path = &path_part[3..];
             if rest_path.is_empty() {
-                Ok(format!("{drive}:\\"))
+                return Ok(format!("{drive}:\\"));
             } else {
-                Ok(format!("{drive}:\\{rest_path}"))
+                return Ok(format!("{drive}:\\{rest_path}"));
             }
-        } else {
-            Ok(format!("/{path_part}"))
         }
-    } else {
-        // Non-local authority — not a local path
-        Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "non-local file: URI not supported: '{uri}'"
-        )))
+        // When authority is empty and path_part has a leading / that isn't
+        // a drive letter, treat as UNC (//server/path).
+        // file:////server/path → authority="" + path="/server/path" → //server/path
+        if authority.is_empty() && path_part.starts_with('/') {
+            if path_part.starts_with("//") {
+                return Ok(path_part.to_string());
+            }
+            return Ok(format!("/{path_part}"));
+        }
+        if path_part.starts_with('/') {
+            return Ok(path_part.to_string());
+        }
+        return Ok(format!("/{path_part}"));
     }
+
+    // Non-local authority → UNC path on Windows, ValueError on POSIX
+    if !is_windows {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "non-local file: URI not supported: '{uri}'"
+        )));
+    }
+    if path_part.is_empty() {
+        Ok(format!("//{authority}"))
+    } else {
+        Ok(format!("//{authority}/{path_part}"))
+    }
+}
+
+/// Create a PyErr for UnsupportedOperation with the given method name message.
+fn unsupported_msg(method: &str) -> pyo3::PyErr {
+    Python::with_gil(|py| {
+        let pathlibrs = py
+            .import("pathlibrs")
+            .expect("pathlibrs module should be importable");
+        let exc = pathlibrs
+            .getattr("UnsupportedOperation")
+            .expect("UnsupportedOperation should be defined");
+        let msg = format!("{method} is unsupported on this system");
+        PyErr::from_value(exc.call1((msg,)).unwrap())
+    })
 }
